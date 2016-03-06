@@ -43,8 +43,13 @@ def mocked_import(module_names, imported_identifiers):
 def from_alias(alias):
     return alias.asname or alias.name.split('.')[0]
 
-def myprint(**kwargs):
-    print(kwargs)
+def selector(_record=[], **kwargs):
+    if kwargs:
+        _record.append(kwargs.get('install_requires', []))
+    else:
+        result = _record[:]
+        del _record[:]
+        return result
 
 class Sanitizer(ast.NodeTransformer):
     def visit_ImportFrom(self, node):
@@ -62,16 +67,21 @@ class Sanitizer(ast.NodeTransformer):
         if getattr(node.func, 'id', None) == 'open' and (not node.args[1:] or 'r' in node.args[1].s):
             return ast.Call(func=ast.Name(id='StringIO', ctx=ast.Load()), args=[ast.Str(s='FIXME')], keywords=[])
         elif getattr(node.func, 'id', None) == 'setup':
-            return ast.Call(func=ast.Name(id='myprint', ctx=ast.Load()), args=node.args, keywords=node.keywords, starargs=node.starargs, kwargs=node.kwargs)
+            return ast.Call(func=ast.Name(id='selector', ctx=ast.Load()), args=node.args, keywords=node.keywords, starargs=node.starargs, kwargs=node.kwargs)
         else:
             return node
 
 sanitize = Sanitizer().visit
 
+def extract_from_setup(path, setupfile):
+    setup = ast.parse(setupfile.read())
+    setup = sanitize(setup)
+    setup = ast.fix_missing_locations(setup)
+    exec(compile(setup, path, 'exec'))
+    return selector()
+    
+
 if __name__ == '__main__':
     fname = sys.argv[1]
     with open(fname) as f:
-        setup = ast.parse(f.read())
-        setup = sanitize(setup)
-        setup = ast.fix_missing_locations(setup)
-        exec(compile(setup, fname, 'exec'))
+        print(extract_from_setup(fname, f))
